@@ -88,6 +88,10 @@ Each profile may set a `retryPolicy`; omission uses normal mode with five retrie
 
 The generated [configuration catalog](../../../docs/config-catalog.md#deepseek-aidsh-llm-pi-ai) is the exhaustive source for every accepted field and its JSDoc.
 
+### Send the session header a route requires
+
+Some endpoints refuse a request that names no conversation. OpenCode Go answers `400 MissingSessionID` unless `x-opencode-session` carries a stable id, so a request the loop stamps with a Session id sends that header. A request carrying no session id — a direct `ctx.llm.stream()` call outside a Session — sends no header rather than an invented value, and such an endpoint refuses it. The requirement is a property of the installed catalog's route, not a profile field: the endpoint either demands the header or it does not, and pi-ai's catalog declares no header for it.
+
 ### Sign in to a provider
 
 A provider pi-ai ships a login for can be signed into through the harness authorization seam: the flow offers OAuth or an interactive key prompt (a key is typed into pi-ai's own login prompt, not into the settings form), and the resulting credential is stored in the harness credential store at `llm-pi-ai/<provider id>`. The stored sign-in authenticates its route beneath any `apiKeyEnv` override and refreshes itself under the store's cross-process lock; signing out deletes the stored record. A hand-declared route key outside the record grammar — a lowercase hyphenated identifier — cannot be signed into, because a record write for it refuses with `LlmError('UNSTORABLE_PROVIDER_ID')`; such a route authenticates through `apiKeyEnv` or ambient provider settings instead.

@@ -36,6 +36,8 @@ The adapter calls pi-ai's `streamSimple()` so each catalog model chooses its reg
 
 pi-ai's common stream options do not expose stop sequences. `dsh-llm-pi-ai` rejects a defined Harness `stop` option with `UNSUPPORTED_OPTION` rather than silently ignoring it or growing a second provider-specific payload implementation. `dsh-llm-deepseek` continues to support `stop` through its native request serializer.
 
+A route that refuses a request carrying no conversation identity receives the Harness session id in the header that endpoint requires. The installed catalog's OpenCode Go route answers `400 MissingSessionID` without `x-opencode-session`, so `dsh-llm-pi-ai` sends that header on every request the loop stamped with a Session id; a request carrying no session id sends no header rather than an invented value. The header name belongs to the installed provider beside the model catalog rather than to a profile, because the endpoint either demands the header or it does not, and pi-ai's catalog declares no header for it.
+
 ### Recorded assistant route and replay state
 
 Assistant messages carry the request's `provider` and `model`, plus an optional JSON-serializable adapter replay state. A successful `assistant/message` session event records those fields and `deriveMessages()` returns them with the assistant message. User, system, context, and tool-result messages carry no assistant route fields. The provider/model fields are authoritative loop data; an adapter owns only its opaque replay-state payload.
@@ -70,6 +72,8 @@ Current seed/load validation rejects request headers and assistant messages that
 
 **Accept arbitrary inline pi-ai model descriptors.** This would support catalog-external private model ids, but it exposes pi-ai's model and compatibility schema as Harness configuration and makes the adapter responsible for validating protocol-specific combinations. The first version supports custom endpoints by overriding `baseURL` on catalog models; custom descriptors require a separate decision after a real catalog-external deployment is identified.
 
+**Configure the required session header per profile.** A `sessionHeader` field would let a hand-declared route to the same gateway carry the requirement the catalog route gets by default. It also makes a working route depend on an operator knowing a header name the installed provider already implies, and no current deployment declares such a route; the requirement therefore lives with the catalog fact, and a profile field can be added when a hand-declared route needs one.
+
 ## Consequences
 
 - Provider names are deployment-wide route ownership keys: two providers may use the same model string, but mounting two adapters for one provider fails at load instead of creating fallback order.
@@ -77,12 +81,13 @@ Current seed/load validation rejects request headers and assistant messages that
 - A custom `baseURL` preserves the selected catalog model's protocol and capabilities; it does not make catalog-external model ids valid. Private endpoints must implement that catalog entry's protocol.
 - pi-ai credentials, transport knobs, SDK timeouts, and the five-minute-default `streamIdleTimeoutMs` watchdog are scoped per provider profile. Hidden provider retries are disabled; bounded retries belong to the separately composed agent recovery policy.
 - `dsh-llm-pi-ai` rejects stop sequences because pi-ai's common stream API cannot express them; the native DeepSeek adapter retains its stop support.
+- A catalog route that requires a session header carries it on every request the loop stamped with a Session id, so a Session-less direct `ctx.llm.stream()` call to such a route is refused by the provider rather than routed with an invented identity.
 - Replay state is portable only within the adapter instance that owns both the historical and target providers. Cross-provider and cross-model restoration is an adapter responsibility, and another adapter receives provider-neutral history without the opaque state.
 - Current Session JSONL requires provider/model on request headers and assistant messages. The v0 edge migrates only frozen shapes that already carry reconstructable request identity.
 
 ## Testing
 
-- Unit coverage exercises registry conflicts, request reconstruction, session validation, profile resolution, single-attempt option forwarding, native API selection including OpenAI Responses, conversion, replay validation, error mapping, caller cancellation, idle-timeout transport termination, content rewrites, and same-instance versus different-instance replay dispatch.
+- Unit coverage exercises registry conflicts, request reconstruction, session validation, profile resolution, single-attempt option forwarding, the session header a route requires, native API selection including OpenAI Responses, conversion, replay validation, error mapping, caller cancellation, idle-timeout transport termination, content rewrites, and same-instance versus different-instance replay dispatch.
 - Keyless loop/session tests and ACP snapshots exercise durable provider/model metadata, resume and fork propagation, workflow/subagent overrides, and unchanged user-visible transcripts; the key-gated DeepSeek e2e retains real provider streaming and tool follow-up coverage.
 - Public JSDoc, package READMEs, architecture and subsystem docs, generated catalogs, examples, session fixtures, and Python SDK pairs use provider/model targets consistently and are checked by the repository documentation and type-equivalence gates.
 

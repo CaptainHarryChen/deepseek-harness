@@ -27,6 +27,7 @@ import {
   MAX_TOKENS_FIELDS,
   MODALITIES,
   PiAiCatalogError,
+  requiredSessionHeader,
   resolveRouteModels,
   SUPPORTED_THINKING_FORMATS,
   THINKING_LEVELS,
@@ -190,6 +191,14 @@ export interface ResolvedPiAiProviderProfile
   displayName: string
   /** Validated credential reference, when one is configured. */
   apiKeyEnv?: CredentialRef
+  /**
+   * Request header this route needs the harness session id under, or absent
+   * when it needs none. Resolved from the installed catalog's requirement for
+   * the route rather than configured, because the endpoint either demands the
+   * header or it does not; a request that reaches such a route without a
+   * session id sends no header and is refused by the provider.
+   */
+  sessionHeader?: string
   /** Positive finite provider-idle interval after defaulting. */
   streamIdleTimeoutMs: number
   /** Positive request-level base64 image payload bound after defaulting. */
@@ -484,11 +493,13 @@ export function resolveProfiles(
       catalogError ??= error.message
     }
     const { apiKeyEnv, retryPolicy, models: _models, displayName: _displayName, ...rest } = source
+    const sessionHeader = requiredSessionHeader(provider)
     resolved.set(provider, {
       ...rest,
       provider,
       displayName,
       ...apiKeyEnv === undefined ? {} : { apiKeyEnv: credentialRef(apiKeyEnv) },
+      ...sessionHeader === undefined ? {} : { sessionHeader },
       streamIdleTimeoutMs,
       maxRequestImageBytes,
       requestImagePixelBudget,

@@ -85,6 +85,14 @@ describe('modality schema boundary', () => {
   })
 })
 
+describe('provider session header', () => {
+  it('resolves the header an installed route requires the session id under', () => {
+    const resolved = resolveProfiles({ 'opencode-go': {}, deepseek: {} })
+    expect(resolved.get('opencode-go')?.sessionHeader).toBe('x-opencode-session')
+    expect(resolved.get('deepseek')?.sessionHeader).toBeUndefined()
+  })
+})
+
 describe('request image policy bounds', () => {
   it.each([
     ['requestImagePixelBudget', 0, /requestImagePixelBudget must be a positive safe integer/],

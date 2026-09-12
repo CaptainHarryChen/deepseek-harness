@@ -193,6 +193,32 @@ export function catalogProviderIds(): readonly string[] {
 }
 
 /**
+ * The request header an installed catalog route requires the harness session
+ * id under.
+ *
+ * OpenCode Go answers `400 MissingSessionID` to any request that arrives
+ * without `x-opencode-session`; the endpoint states the requirement for every
+ * model it serves, and pi-ai's installed catalog carries no header for the
+ * route and no compat field that spells one. So the requirement lives here,
+ * keyed by the provider id — the one name for it that configuration cannot
+ * drift from. A route pi-ai does not ship is absent, because nothing declares
+ * that such a route speaks this protocol.
+ * @see https://opencode.ai/docs/go/#where-can-i-use-it
+ */
+const SESSION_HEADERS: Readonly<Record<string, string>> = {
+  'opencode-go': 'x-opencode-session',
+}
+
+/**
+ * The header one route needs the harness session id under.
+ * @param provider - provider route key.
+ * @returns the header name, or `undefined` when the route needs none.
+ */
+export function requiredSessionHeader(provider: string): string | undefined {
+  return SESSION_HEADERS[provider]
+}
+
+/**
  * The installed catalog models for one route, indexed by model id.
  * @param provider - provider route key.
  * @returns catalog models by id; empty for a route pi-ai does not ship.

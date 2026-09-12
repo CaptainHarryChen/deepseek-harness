@@ -123,6 +123,30 @@ describe('PiAiAdapter provider routing', () => {
     expect(server.headers[0]?.['user-agent']).toBe(userAgent())
   })
 
+  it('sends the session id in the header its installed route requires', async () => {
+    vi.stubEnv('PI_TEST_KEY', 'test-key')
+    const server = await mockServer([{ events: textEvents }, { events: textEvents }])
+    const ctx = new Context()
+    await ctx.plugin(LlmRuntime)
+    await ctx.plugin(LlmPiAi, {
+      providers: { 'opencode-go': { apiKeyEnv: 'PI_TEST_KEY', baseURL: `${server.url}/v1` } },
+    })
+
+    await assemble(ctx, {
+      provider: 'opencode-go',
+      model: 'deepseek-v4-flash',
+      messages: [],
+      sessionId: 'session-for-go' as never,
+    })
+    expect(server.headers[0]?.['x-opencode-session']).toBe('session-for-go')
+
+    // The session id is the only accepted value, so a request carrying none
+    // sends no header rather than an invented one.
+    await assemble(ctx, { provider: 'opencode-go', model: 'deepseek-v4-flash', messages: [] })
+    expect(server.paths).toHaveLength(2)
+    expect(server.headers[1]?.['x-opencode-session']).toBeUndefined()
+  })
+
   it('forwards common stream options and profile reasoning', async () => {
     const server = await mockServer([{ events: textEvents }])
     const ctx = await harness(server.url, {
