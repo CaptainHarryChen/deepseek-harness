@@ -11,6 +11,7 @@ import { PiAiAdapter } from '@deepseek-ai/dsh-llm-pi-ai'
 import { getBuiltinModels } from '@earendil-works/pi-ai/providers/all'
 import { createModels, getSupportedThinkingLevels } from '@earendil-works/pi-ai'
 import type { Api, Model, OpenAICompletionsCompat, Provider } from '@earendil-works/pi-ai'
+import { catalogModels, mergeCatalogAdditions } from '../src/catalog.ts'
 import { resolveProfiles } from '../src/config.ts'
 import { buildProvider, supportedProtocols } from '../src/provider.ts'
 import { assemble } from './assemble.ts'
@@ -607,6 +608,64 @@ describe('catalog routes with per-model configuration', () => {
     // trade a truthful refusal for an endpoint's 401.
     const resolved = resolveProfiles({ 'openai-codex': {} })
     expect(resolved.get('openai-codex')?.piProvider?.auth.apiKey).toBeUndefined()
+  })
+})
+
+describe('bridged catalog additions', () => {
+  it('offers a model the installed catalog has not caught up with', async () => {
+    const ctx = await harness({ providers: { 'opencode-go': { apiKeyEnv: KEY_ENV } } })
+
+    // The configuration surface's "fetch available models" answers from the
+    // catalog, so the bridged entry must surface there with its capacities.
+    await expect(ctx.llm.discoverModels('llm-pi-ai', { provider: 'opencode-go' })).resolves.toContainEqual({
+      id: 'deepseek-v4.1-flash',
+      name: 'DeepSeek V4.1 Flash',
+      contextWindow: 1_000_000,
+      maxTokens: 384_000,
+    })
+    await expect(ctx.llm.resolveModelInfo('opencode-go', 'deepseek-v4.1-flash')).resolves.toMatchObject({
+      provider: 'opencode-go',
+      id: 'deepseek-v4.1-flash',
+      name: 'DeepSeek V4.1 Flash',
+      context: { contextWindow: 1_000_000 },
+    })
+    await expect(ctx.llm.listModels('opencode-go')).resolves.toContainEqual({
+      provider: 'opencode-go',
+      id: 'deepseek-v4.1-flash',
+      name: 'DeepSeek V4.1 Flash',
+      inputModalities: ['text'],
+    })
+  })
+
+  it('inherits the clone sibling’s wire behavior, not just its capacities', () => {
+    const model = catalogModels('opencode-go').get('deepseek-v4.1-flash')
+    if (model === undefined) throw new Error('the bridged model resolved no entry')
+    const sibling = getBuiltinModels('opencode-go').find(candidate => candidate.id === 'deepseek-v4-flash')
+    if (sibling === undefined) throw new Error('the installed opencode-go catalog ships no deepseek-v4-flash')
+    expect(model.api).toBe(sibling.api)
+    expect(model.baseUrl).toBe(sibling.baseUrl)
+    expect(model.reasoning).toBe(sibling.reasoning)
+    expect(model.input).toEqual(sibling.input)
+    expect(model.compat).toEqual(sibling.compat)
+    expect(model.thinkingLevelMap).toEqual(sibling.thinkingLevelMap)
+  })
+
+  it('leaves a model the installed catalog already ships to the catalog', () => {
+    // The installed catalog carrying the id is the upstreamed state; the
+    // bridge must not overwrite the catalog's own entry (nor add a duplicate).
+    const base = catalogModels('opencode-go')
+    expect(base.size).toBeGreaterThan(0)
+    mergeCatalogAdditions('opencode-go', base)
+    expect(base.get('deepseek-v4.1-flash')?.name).toBe('DeepSeek V4.1 Flash')
+  })
+
+  it('fails loud when the clone sibling leaves the installed catalog', () => {
+    const base = catalogModels('opencode-go')
+    base.delete('deepseek-v4-flash')
+    base.delete('deepseek-v4.1-flash')
+    expect(() => mergeCatalogAdditions('opencode-go', base)).toThrow(
+      /deepseek-v4\.1-flash.*clones "deepseek-v4-flash"/,
+    )
   })
 })
 

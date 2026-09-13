@@ -219,14 +219,80 @@ export function requiredSessionHeader(provider: string): string | undefined {
 }
 
 /**
- * The installed catalog models for one route, indexed by model id.
+ * Model ids the installed catalog has not caught up with, bridged by this
+ * harness. Keyed by route, then by the missing model id; each entry names the
+ * catalog sibling the addition is cloned from — the installed record carries
+ * the protocol, compat, thinking map, and capacities, so the addition inherits
+ * them and only replaces the id and display name. An id the installed catalog
+ * later ships is left as the catalog's own entry. Drop an entry here — with
+ * the merge branches and tests that pin it — once the installed catalog
+ * carries that id.
+ */
+const CATALOG_ADDITIONS: Readonly<Record<
+  string,
+  Readonly<Record<string, { readonly clone: string; readonly name: string }>>
+>> = {
+  'opencode-go': {
+    // OpenCode Go serves the V4.1 flash model under this id; pi-ai's installed
+    // catalog has not caught up with it yet. Same family as the sibling clone
+    // source, so the capacities (1M context, 384K output) and wire behavior
+    // ride along unchanged.
+    'deepseek-v4.1-flash': { clone: 'deepseek-v4-flash', name: 'DeepSeek V4.1 Flash' },
+  },
+}
+
+/**
+ * The harness's bridged catalog additions for one route, when it has any.
+ * @param provider - provider route key.
+ * @returns the additions keyed by the missing model id; empty for routes without any.
+ */
+function additionsFor(provider: string): Readonly<Record<string, { readonly clone: string; readonly name: string }>> {
+  return CATALOG_ADDITIONS[provider] ?? {}
+}
+
+/**
+ * Merge the harness's bridged catalog additions into one route's model map.
+ *
+ * Each addition clones its named sibling from the same route, so pi-ai's own
+ * record keeps carrying the protocol, compat, and reasoning facts and the
+ * bridge stays current when the installed snippet for the sibling changes. A
+ * model the installed catalog already ships is never bridged — the catalog's
+ * own entry wins, which is also the signal that the addition has been
+ * upstreamed and its entry should be dropped.
+ * @param provider - provider route key, for diagnostics.
+ * @param catalog - the installed catalog models by id; entries are added in place.
+ * @returns the same map with the additions merged.
+ * @throws Error naming the addition when its clone sibling is absent — the
+ *   bridge would silently drop the model it exists to offer, so it must fail loud.
+ */
+export function mergeCatalogAdditions(
+  provider: string,
+  catalog: Map<string, Model<Api>>,
+): Map<string, Model<Api>> {
+  for (const [id, addition] of Object.entries(additionsFor(provider))) {
+    if (catalog.has(id)) continue
+    const base = catalog.get(addition.clone)
+    if (base === undefined) {
+      throw new Error(
+        `llm-pi-ai: catalog addition "${provider}/${id}" clones "${addition.clone}", which the installed`
+        + ' catalog no longer ships; adjust the addition',
+      )
+    }
+    catalog.set(id, { ...base, id, name: addition.name })
+  }
+  return catalog
+}
+
+/**
+ * The installed catalog models for one route, indexed by model id, plus the
+ * harness's bridged additions for routes whose catalog has not caught up.
  * @param provider - provider route key.
  * @returns catalog models by id; empty for a route pi-ai does not ship.
  */
 export function catalogModels(provider: string): Map<string, Model<Api>> {
   if (!catalogProviders().has(provider)) return new Map()
   const models = getBuiltinModels(provider as BuiltinProvider) as Model<Api>[]
-  return new Map(models.map(model => [model.id, model]))
+  return mergeCatalogAdditions(provider, new Map(models.map(model => [model.id, model])))
 }
 
 /**
